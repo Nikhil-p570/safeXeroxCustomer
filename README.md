@@ -1,6 +1,5 @@
 # 🛡️ Safe Xerox: Your Personal Printing Shield
 
-![Customer Guide](file:///C:/Users/Hello/.gemini/antigravity/brain/2da61f22-257d-4a97-a06c-743ef886b60b/customer_step_guide_1776598551375.png)
 
 ## 🔒 Stop Leaving Your Data at the Xerox Shop
 Have you ever wondered what happens to your files after you send them to a shopkeeper's WhatsApp or Email? They stay there. Forever. 
