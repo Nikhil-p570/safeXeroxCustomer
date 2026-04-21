@@ -13,20 +13,20 @@ class ScannerScreen extends StatefulWidget {
 
   static Widget buildShopFoundDialog(BuildContext context, String shopId, String shopName) {
     bool isUploading = false;
+    final nameController = TextEditingController();
     
     return StatefulBuilder(
       builder: (context, setModalState) => Padding(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.only(
+            left: 24, right: 24, top: 24,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 60,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
+                width: 60, height: 4,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
               ),
               const SizedBox(height: 24),
               if (isUploading)
@@ -43,35 +43,42 @@ class ScannerScreen extends StatefulWidget {
                   children: [
                     Container(
                       padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
+                      decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
                       child: const Icon(Icons.storefront_outlined, color: Colors.green, size: 40),
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      'Connected to Shop',
-                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                    Text('Connected to $shopName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: nameController,
+                      decoration: InputDecoration(
+                        labelText: 'Your Name',
+                        hintText: 'Enter your name for the owner',
+                        prefixIcon: const Icon(Icons.person_outline),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      shopName,
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () async {
+                          if (nameController.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please enter your name first')),
+                            );
+                            return;
+                          }
                           try {
                             final scannerState = context.findAncestorStateOfType<_ScannerScreenState>();
                             if (scannerState != null) {
-                              await scannerState._pickAndUploadFiles(context, shopId, (uploading) {
+                              await scannerState._pickAndUploadFiles(context, shopId, nameController.text.trim(), (uploading) {
                                 setModalState(() => isUploading = uploading);
                               });
                             } else {
-                              await _staticPickAndUploadFiles(context, shopId, (uploading) {
+                              await _staticPickAndUploadFiles(context, shopId, nameController.text.trim(), (uploading) {
                                 setModalState(() => isUploading = uploading);
                               });
                             }
@@ -85,7 +92,7 @@ class ScannerScreen extends StatefulWidget {
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: const Text('UPLOAD FILES', style: TextStyle(fontWeight: FontWeight.bold)),
+                        child: const Text('SELECT & UPLOAD FILES', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -95,16 +102,15 @@ class ScannerScreen extends StatefulWidget {
                     ),
                   ],
                 ),
-              const SizedBox(height: 20),
             ],
           ),
         ),
     );
   }
 
-  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId, Function(bool) setLoading) async {
+  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId, String customerName, Function(bool) setLoading) async {
     final state = _ScannerScreenState();
-    await state._pickAndUploadFiles(context, shopId, setLoading);
+    await state._pickAndUploadFiles(context, shopId, customerName, setLoading);
   }
 
   @override
@@ -116,10 +122,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   void _handleShopQr(BuildContext context, String code) {
     if (!_isScanning) return;
-    
-    setState(() {
-      _isScanning = false;
-    });
+    setState(() => _isScanning = false);
 
     try {
       final uri = Uri.parse(code);
@@ -148,20 +151,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName),
     ).whenComplete(() {
-      if (mounted) {
-        setState(() {
-          _isScanning = true;
-        });
-      }
+      if (mounted) setState(() => _isScanning = true);
     });
   }
 
-  Future<void> _pickAndUploadFiles(BuildContext context, String shopId, Function(bool) setLoading) async {
+  Future<void> _pickAndUploadFiles(BuildContext context, String shopId, String customerName, Function(bool) setLoading) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -174,7 +171,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
         return;
       }
 
-      // ONLY set loading to true AFTER files are picked
       setLoading(true);
 
       for (final file in result.files) {
@@ -185,16 +181,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
         try {
           if (kIsWeb) {
             if (file.bytes != null) {
-              await Supabase.instance.client.storage
-                  .from('print-files')
-                  .uploadBinary(path, file.bytes!);
+              await Supabase.instance.client.storage.from('print-files').uploadBinary(path, file.bytes!);
               uploadSuccess = true;
             }
           } else {
             if (file.path != null) {
-              await Supabase.instance.client.storage
-                  .from('print-files')
-                  .upload(path, File(file.path!));
+              await Supabase.instance.client.storage.from('print-files').upload(path, File(file.path!));
               uploadSuccess = true;
             }
           }
@@ -203,10 +195,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         }
 
         if (uploadSuccess) {
-          final fileUrl = Supabase.instance.client.storage
-              .from('print-files')
-              .getPublicUrl(path);
-
+          final fileUrl = Supabase.instance.client.storage.from('print-files').getPublicUrl(path);
           final prefs = await SharedPreferences.getInstance();
           final customerId = prefs.getString('customer_id');
 
@@ -216,25 +205,19 @@ class _ScannerScreenState extends State<ScannerScreen> {
             'file_name': file.name,
             'status': 'pending',
             'customer_id': customerId,
+            'customer_name': customerName, // Storing the name!
           });
         }
       }
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Files sent successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Files sent successfully!'), backgroundColor: Colors.green));
         Navigator.pop(context);
       }
     } catch (e) {
       setLoading(false);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
       }
     }
   }
@@ -264,27 +247,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: const [
-                  Text(
-                    'Scan Shop QR',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
+                  Text('Scan Shop QR', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
                 ],
               ),
             ),
           ),
-          Positioned(
-            top: 40,
-            left: 20,
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 28),
-              onPressed: widget.onClose,
-            ),
-          ),
+          Positioned(top: 40, left: 20, child: IconButton(icon: const Icon(Icons.close, color: Colors.white, size: 28), onPressed: widget.onClose)),
         ],
       ),
     );
