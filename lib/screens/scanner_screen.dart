@@ -12,13 +12,14 @@ class ScannerScreen extends StatefulWidget {
   const ScannerScreen({Key? key, required this.onClose}) : super(key: key);
 
   static Widget buildShopFoundDialog(BuildContext context, String shopId, String shopName, {bool startImmediately = false}) {
-    bool isUploading = startImmediately;
+    bool isUploading = false; // Start as false, even in immediate mode
     final nameController = TextEditingController();
     bool hasSavedName = false;
     bool alreadyTriggeredPicker = false;
 
     return StatefulBuilder(
       builder: (context, setModalState) {
+        // Load name and handle immediate trigger
         if (nameController.text.isEmpty && !hasSavedName) {
           SharedPreferences.getInstance().then((prefs) {
             final savedName = prefs.getString('customer_display_name');
@@ -27,18 +28,45 @@ class ScannerScreen extends StatefulWidget {
                 nameController.text = savedName;
                 hasSavedName = true;
                 
-                // If we are in "Direct" mode, trigger the picker as soon as we have the name
+                // If Direct Mode, trigger the picker but DON'T show loading yet
                 if (startImmediately && !alreadyTriggeredPicker) {
                   alreadyTriggeredPicker = true;
                   _staticPickAndUploadFiles(context, shopId, shopName, savedName, (uploading) {
-                    setModalState(() => isUploading = uploading);
-                  });
+                    if (context.mounted) {
+                      setModalState(() => isUploading = uploading);
+                    }
+                  }, autoCloseOnCancel: true);
                 }
               });
             }
           });
         }
 
+        // If we are uploading, show the spinner. 
+        // If we are in immediate mode but NOT yet uploading, keep the UI hidden or simple
+        if (isUploading) {
+          return Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: Colors.green),
+                const SizedBox(height: 24),
+                const Text('Uploading your files...', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text('Sending to $shopName', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+              ],
+            ),
+          );
+        }
+
+        // If startImmediately is true but we aren't uploading yet, 
+        // we show a tiny transparent container so the modal doesn't flicker 
+        // while the file picker is open.
+        if (startImmediately && !isUploading) {
+          return const SizedBox(height: 1); 
+        }
+
+        // Standard Button UI
         return Padding(
           padding: EdgeInsets.only(
             left: 24, right: 24, top: 24,
@@ -49,74 +77,51 @@ class ScannerScreen extends StatefulWidget {
             children: [
               Container(width: 60, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 24),
-              if (isUploading)
-                const Column(
-                  children: [
-                    CircularProgressIndicator(color: Colors.green),
-                    SizedBox(height: 16),
-                    Text('Uploading your files...', style: TextStyle(fontWeight: FontWeight.w500)),
-                    Text('Please do not close this window', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  ],
-                )
-              else
-                Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
-                      child: const Icon(Icons.storefront_outlined, color: Colors.green, size: 40),
-                    ),
-                    const SizedBox(height: 16),
-                    Text('Connected to $shopName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 24),
-                    if (!hasSavedName)
-                      TextField(
-                        controller: nameController,
-                        decoration: InputDecoration(
-                          labelText: 'Your Name',
-                          hintText: 'Enter your name once',
-                          prefixIcon: const Icon(Icons.person_outline),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          filled: true,
-                          fillColor: Colors.grey[50],
-                        ),
-                      )
-                    else
-                      Text('Welcome back, ${nameController.text}!', style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic)),
-                    
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          final name = nameController.text.trim();
-                          if (name.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter your name first')));
-                            return;
-                          }
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.setString('customer_display_name', name);
-
-                          await _staticPickAndUploadFiles(context, shopId, shopName, name, (uploading) {
-                            setModalState(() => isUploading = uploading);
-                          });
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[800],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: const Text('SELECT & UPLOAD FILES', style: TextStyle(fontWeight: FontWeight.bold)),
+              Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
+                    child: const Icon(Icons.storefront_outlined, color: Colors.green, size: 40),
+                  ),
+                  const SizedBox(height: 16),
+                  Text('Connected to $shopName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 24),
+                  if (!hasSavedName)
+                    TextField(
+                      controller: nameController,
+                      decoration: InputDecoration(
+                        labelText: 'Your Name',
+                        prefixIcon: const Icon(Icons.person_outline),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
+                    )
+                  else
+                    Text('Welcome back, ${nameController.text}!', style: TextStyle(color: Colors.grey[600])),
+                  
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final name = nameController.text.trim();
+                        if (name.isEmpty) return;
+                        await _staticPickAndUploadFiles(context, shopId, shopName, name, (uploading) {
+                          setModalState(() => isUploading = uploading);
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green[800], foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('SELECT & UPLOAD FILES', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('CANCEL', style: TextStyle(color: Colors.grey)),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL', style: TextStyle(color: Colors.grey))),
+                ],
+              ),
             ],
           ),
         );
@@ -124,7 +129,10 @@ class ScannerScreen extends StatefulWidget {
     );
   }
 
-  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId, String shopName, String customerName, Function(bool) setLoading) async {
+  static Future<void> _staticPickAndUploadFiles(
+    BuildContext context, String shopId, String shopName, String customerName, 
+    Function(bool) setLoading, {bool autoCloseOnCancel = false}
+  ) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -134,9 +142,8 @@ class ScannerScreen extends StatefulWidget {
 
       if (result == null) {
         setLoading(false);
-        // If we were in a dialog, maybe we should close it if it was a direct upload
-        if (Navigator.canPop(context)) {
-          // Check if we should pop - usually yes if it's the modal
+        if (autoCloseOnCancel && Navigator.canPop(context)) {
+          Navigator.pop(context);
         }
         return;
       }
@@ -168,13 +175,9 @@ class ScannerScreen extends StatefulWidget {
           final customerId = prefs.getString('customer_id');
 
           await Supabase.instance.client.from('print_requests').insert({
-            'shop_id': shopId,
-            'shop_name': shopName,
-            'file_url': fileUrl,
-            'file_name': file.name,
-            'status': 'pending',
-            'customer_id': customerId,
-            'customer_name': customerName,
+            'shop_id': shopId, 'shop_name': shopName,
+            'file_url': fileUrl, 'file_name': file.name,
+            'status': 'pending', 'customer_id': customerId, 'customer_name': customerName,
           });
         }
       }
@@ -201,19 +204,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void _handleShopQr(BuildContext context, String code) {
     if (!_isScanning) return;
     setState(() => _isScanning = false);
-
     try {
       final uri = Uri.parse(code);
       String? shopId = uri.queryParameters['id'];
       String? shopName = uri.queryParameters['name'] ?? 'Unknown Shop';
-
-      if (shopId != null) {
-        _showShopFoundDialog(context, shopId, shopName);
-      }
-    } catch (e) {
-      debugPrint('Error: $e');
-      setState(() => _isScanning = true);
-    }
+      if (shopId != null) _showShopFoundDialog(context, shopId, shopName);
+    } catch (e) { setState(() => _isScanning = true); }
   }
 
   void _showShopFoundDialog(BuildContext context, String shopId, String shopName) {
@@ -249,12 +245,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
           const ScannerOverlay(),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              padding: const EdgeInsets.all(20),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Text('Scan Shop QR', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                ],
+                children: const [Text('Scan Shop QR', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))],
               ),
             ),
           ),
