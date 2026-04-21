@@ -64,13 +64,16 @@ class ScannerScreen extends StatefulWidget {
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () async {
-                          setModalState(() => isUploading = true);
                           try {
                             final scannerState = context.findAncestorStateOfType<_ScannerScreenState>();
                             if (scannerState != null) {
-                              await scannerState._pickAndUploadFiles(context, shopId);
+                              await scannerState._pickAndUploadFiles(context, shopId, (uploading) {
+                                setModalState(() => isUploading = uploading);
+                              });
                             } else {
-                              await _staticPickAndUploadFiles(context, shopId);
+                              await _staticPickAndUploadFiles(context, shopId, (uploading) {
+                                setModalState(() => isUploading = uploading);
+                              });
                             }
                           } catch (e) {
                             setModalState(() => isUploading = false);
@@ -99,9 +102,9 @@ class ScannerScreen extends StatefulWidget {
     );
   }
 
-  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId) async {
+  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId, Function(bool) setLoading) async {
     final state = _ScannerScreenState();
-    await state._pickAndUploadFiles(context, shopId);
+    await state._pickAndUploadFiles(context, shopId, setLoading);
   }
 
   @override
@@ -158,7 +161,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     });
   }
 
-  Future<void> _pickAndUploadFiles(BuildContext context, String shopId) async {
+  Future<void> _pickAndUploadFiles(BuildContext context, String shopId, Function(bool) setLoading) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -166,13 +169,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
         allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'png'],
       );
 
-      if (result == null) return;
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Uploading files...')),
-        );
+      if (result == null) {
+        setLoading(false);
+        return;
       }
+
+      // ONLY set loading to true AFTER files are picked
+      setLoading(true);
 
       for (final file in result.files) {
         final fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.name}';
@@ -227,6 +230,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         Navigator.pop(context);
       }
     } catch (e) {
+      setLoading(false);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
