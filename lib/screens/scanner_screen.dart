@@ -11,14 +11,14 @@ class ScannerScreen extends StatefulWidget {
   final VoidCallback onClose;
   const ScannerScreen({Key? key, required this.onClose}) : super(key: key);
 
-  static Widget buildShopFoundDialog(BuildContext context, String shopId, String shopName) {
-    bool isUploading = false;
+  static Widget buildShopFoundDialog(BuildContext context, String shopId, String shopName, {bool startImmediately = false}) {
+    bool isUploading = startImmediately;
     final nameController = TextEditingController();
     bool hasSavedName = false;
+    bool alreadyTriggeredPicker = false;
 
     return StatefulBuilder(
       builder: (context, setModalState) {
-        // Load name from preferences if not already checked
         if (nameController.text.isEmpty && !hasSavedName) {
           SharedPreferences.getInstance().then((prefs) {
             final savedName = prefs.getString('customer_display_name');
@@ -26,6 +26,14 @@ class ScannerScreen extends StatefulWidget {
               setModalState(() {
                 nameController.text = savedName;
                 hasSavedName = true;
+                
+                // If we are in "Direct" mode, trigger the picker as soon as we have the name
+                if (startImmediately && !alreadyTriggeredPicker) {
+                  alreadyTriggeredPicker = true;
+                  _staticPickAndUploadFiles(context, shopId, shopName, savedName, (uploading) {
+                    setModalState(() => isUploading = uploading);
+                  });
+                }
               });
             }
           });
@@ -61,7 +69,6 @@ class ScannerScreen extends StatefulWidget {
                     const SizedBox(height: 16),
                     Text('Connected to $shopName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 24),
-                    // Only show name field if not already remembered
                     if (!hasSavedName)
                       TextField(
                         controller: nameController,
@@ -87,25 +94,12 @@ class ScannerScreen extends StatefulWidget {
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter your name first')));
                             return;
                           }
-                          
-                          // Save the name for future use
                           final prefs = await SharedPreferences.getInstance();
                           await prefs.setString('customer_display_name', name);
 
-                          try {
-                            final scannerState = context.findAncestorStateOfType<_ScannerScreenState>();
-                            if (scannerState != null) {
-                              await scannerState._pickAndUploadFiles(context, shopId, shopName, name, (uploading) {
-                                setModalState(() => isUploading = uploading);
-                              });
-                            } else {
-                              await _staticPickAndUploadFiles(context, shopId, shopName, name, (uploading) {
-                                setModalState(() => isUploading = uploading);
-                              });
-                            }
-                          } catch (e) {
-                            setModalState(() => isUploading = false);
-                          }
+                          await _staticPickAndUploadFiles(context, shopId, shopName, name, (uploading) {
+                            setModalState(() => isUploading = uploading);
+                          });
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green[800],
@@ -131,56 +125,6 @@ class ScannerScreen extends StatefulWidget {
   }
 
   static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId, String shopName, String customerName, Function(bool) setLoading) async {
-    final state = _ScannerScreenState();
-    await state._pickAndUploadFiles(context, shopId, shopName, customerName, setLoading);
-  }
-
-  @override
-  State<ScannerScreen> createState() => _ScannerScreenState();
-}
-
-class _ScannerScreenState extends State<ScannerScreen> {
-  bool _isScanning = true;
-
-  void _handleShopQr(BuildContext context, String code) {
-    if (!_isScanning) return;
-    setState(() => _isScanning = false);
-
-    try {
-      final uri = Uri.parse(code);
-      String? shopId;
-      String? shopName;
-
-      if (code.contains('safe-xerox-customer.vercel.app')) {
-        shopId = uri.queryParameters['id'];
-        shopName = uri.queryParameters['name'] ?? 'Unknown Shop';
-      } else {
-        shopId = uri.queryParameters['id'];
-        shopName = uri.queryParameters['name'] ?? 'Unknown Shop';
-      }
-
-      if (shopId != null) {
-        _showShopFoundDialog(context, shopId, shopName);
-      }
-    } catch (e) {
-      debugPrint('Error parsing QR code: $e');
-      setState(() => _isScanning = true);
-    }
-  }
-
-  void _showShopFoundDialog(BuildContext context, String shopId, String shopName) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName),
-    ).whenComplete(() {
-      if (mounted) setState(() => _isScanning = true);
-    });
-  }
-
-  Future<void> _pickAndUploadFiles(BuildContext context, String shopId, String shopName, String customerName, Function(bool) setLoading) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -190,6 +134,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
       if (result == null) {
         setLoading(false);
+        // If we were in a dialog, maybe we should close it if it was a direct upload
+        if (Navigator.canPop(context)) {
+          // Check if we should pop - usually yes if it's the modal
+        }
         return;
       }
 
@@ -212,9 +160,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
               uploadSuccess = true;
             }
           }
-        } catch (storageError) {
-          debugPrint('Storage upload error: $storageError');
-        }
+        } catch (e) { debugPrint('Upload error: $e'); }
 
         if (uploadSuccess) {
           final fileUrl = Supabase.instance.client.storage.from('print-files').getPublicUrl(path);
@@ -223,7 +169,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
           await Supabase.instance.client.from('print_requests').insert({
             'shop_id': shopId,
-            'shop_name': shopName, // Saving shop name for history grouping!
+            'shop_name': shopName,
             'file_url': fileUrl,
             'file_name': file.name,
             'status': 'pending',
@@ -235,7 +181,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Files sent successfully!'), backgroundColor: Colors.green));
-        Navigator.pop(context);
+        if (Navigator.canPop(context)) Navigator.pop(context);
       }
     } catch (e) {
       setLoading(false);
@@ -243,6 +189,43 @@ class _ScannerScreenState extends State<ScannerScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
       }
     }
+  }
+
+  @override
+  State<ScannerScreen> createState() => _ScannerScreenState();
+}
+
+class _ScannerScreenState extends State<ScannerScreen> {
+  bool _isScanning = true;
+
+  void _handleShopQr(BuildContext context, String code) {
+    if (!_isScanning) return;
+    setState(() => _isScanning = false);
+
+    try {
+      final uri = Uri.parse(code);
+      String? shopId = uri.queryParameters['id'];
+      String? shopName = uri.queryParameters['name'] ?? 'Unknown Shop';
+
+      if (shopId != null) {
+        _showShopFoundDialog(context, shopId, shopName);
+      }
+    } catch (e) {
+      debugPrint('Error: $e');
+      setState(() => _isScanning = true);
+    }
+  }
+
+  void _showShopFoundDialog(BuildContext context, String shopId, String shopName) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName),
+    ).whenComplete(() {
+      if (mounted) setState(() => _isScanning = true);
+    });
   }
 
   @override
@@ -270,7 +253,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: const [
-                  Text('Scan Shop QR', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                  Text('Scan Shop QR', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                 ],
               ),
             ),

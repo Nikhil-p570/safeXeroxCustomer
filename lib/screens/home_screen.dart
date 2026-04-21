@@ -81,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName),
+      builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName, startImmediately: true),
     );
   }
 
@@ -152,7 +152,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     itemBuilder: (context, index) {
                       final shopName = shopNames[index];
                       final files = groupedUploads[shopName]!;
-                      final shopId = files.first['shop_id']; // Get shopId from any file in the group
+                      final shopId = files.first['shop_id'];
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 24),
