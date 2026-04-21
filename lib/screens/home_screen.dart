@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import 'scanner_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onStartScanning;
@@ -74,6 +75,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  void _reuploadToShop(String shopId, String shopName) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName),
+    );
+  }
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -141,24 +152,45 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     itemBuilder: (context, index) {
                       final shopName = shopNames[index];
                       final files = groupedUploads[shopName]!;
+                      final shopId = files.first['shop_id']; // Get shopId from any file in the group
+
                       return Container(
                         margin: const EdgeInsets.only(bottom: 24),
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: Colors.grey[200]!),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+                          ],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Row(children: [
-                                const Icon(Icons.storefront, color: Color(0xFF1B5E20), size: 20),
-                                const SizedBox(width: 8),
-                                Text(shopName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1B5E20))),
-                              ]),
+                              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(children: [
+                                    const Icon(Icons.storefront, color: Color(0xFF1B5E20), size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(shopName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1B5E20))),
+                                  ]),
+                                  TextButton.icon(
+                                    onPressed: () => _reuploadToShop(shopId, shopName),
+                                    icon: const Icon(Icons.add_circle_outline, size: 18),
+                                    label: const Text('Upload More', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: const Color(0xFF1B5E20),
+                                      backgroundColor: const Color(0xFF1B5E20).withOpacity(0.05),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
+                            const Divider(height: 1),
                             ListView.builder(
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
@@ -167,10 +199,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                 final file = files[fIndex];
                                 final time = DateTime.parse(file['created_at']);
                                 return ListTile(
-                                  leading: const Icon(Icons.insert_drive_file_outlined),
-                                  title: Text(file['file_name'] ?? 'File'),
-                                  subtitle: Text(DateFormat('hh:mm a').format(time.toLocal())),
-                                  trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _deleteUpload(file)),
+                                  leading: const Icon(Icons.insert_drive_file_outlined, color: Colors.grey),
+                                  title: Text(file['file_name'] ?? 'File', style: const TextStyle(fontSize: 14)),
+                                  subtitle: Text(DateFormat('hh:mm a').format(time.toLocal()), style: const TextStyle(fontSize: 12)),
+                                  trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => _deleteUpload(file)),
                                 );
                               },
                             ),
