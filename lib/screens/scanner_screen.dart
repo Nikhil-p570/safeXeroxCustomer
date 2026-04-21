@@ -14,9 +14,24 @@ class ScannerScreen extends StatefulWidget {
   static Widget buildShopFoundDialog(BuildContext context, String shopId, String shopName) {
     bool isUploading = false;
     final nameController = TextEditingController();
-    
+    bool hasSavedName = false;
+
     return StatefulBuilder(
-      builder: (context, setModalState) => Padding(
+      builder: (context, setModalState) {
+        // Load name from preferences if not already checked
+        if (nameController.text.isEmpty && !hasSavedName) {
+          SharedPreferences.getInstance().then((prefs) {
+            final savedName = prefs.getString('customer_display_name');
+            if (savedName != null && savedName.isNotEmpty) {
+              setModalState(() {
+                nameController.text = savedName;
+                hasSavedName = true;
+              });
+            }
+          });
+        }
+
+        return Padding(
           padding: EdgeInsets.only(
             left: 24, right: 24, top: 24,
             bottom: MediaQuery.of(context).viewInsets.bottom + 24,
@@ -24,10 +39,7 @@ class ScannerScreen extends StatefulWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 60, height: 4,
-                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
-              ),
+              Container(width: 60, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
               const SizedBox(height: 24),
               if (isUploading)
                 const Column(
@@ -49,36 +61,45 @@ class ScannerScreen extends StatefulWidget {
                     const SizedBox(height: 16),
                     Text('Connected to $shopName', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 24),
-                    TextField(
-                      controller: nameController,
-                      decoration: InputDecoration(
-                        labelText: 'Your Name',
-                        hintText: 'Enter your name for the owner',
-                        prefixIcon: const Icon(Icons.person_outline),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                    ),
+                    // Only show name field if not already remembered
+                    if (!hasSavedName)
+                      TextField(
+                        controller: nameController,
+                        decoration: InputDecoration(
+                          labelText: 'Your Name',
+                          hintText: 'Enter your name once',
+                          prefixIcon: const Icon(Icons.person_outline),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          filled: true,
+                          fillColor: Colors.grey[50],
+                        ),
+                      )
+                    else
+                      Text('Welcome back, ${nameController.text}!', style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic)),
+                    
                     const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () async {
-                          if (nameController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Please enter your name first')),
-                            );
+                          final name = nameController.text.trim();
+                          if (name.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter your name first')));
                             return;
                           }
+                          
+                          // Save the name for future use
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setString('customer_display_name', name);
+
                           try {
                             final scannerState = context.findAncestorStateOfType<_ScannerScreenState>();
                             if (scannerState != null) {
-                              await scannerState._pickAndUploadFiles(context, shopId, nameController.text.trim(), (uploading) {
+                              await scannerState._pickAndUploadFiles(context, shopId, shopName, name, (uploading) {
                                 setModalState(() => isUploading = uploading);
                               });
                             } else {
-                              await _staticPickAndUploadFiles(context, shopId, nameController.text.trim(), (uploading) {
+                              await _staticPickAndUploadFiles(context, shopId, shopName, name, (uploading) {
                                 setModalState(() => isUploading = uploading);
                               });
                             }
@@ -104,13 +125,14 @@ class ScannerScreen extends StatefulWidget {
                 ),
             ],
           ),
-        ),
+        );
+      },
     );
   }
 
-  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId, String customerName, Function(bool) setLoading) async {
+  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId, String shopName, String customerName, Function(bool) setLoading) async {
     final state = _ScannerScreenState();
-    await state._pickAndUploadFiles(context, shopId, customerName, setLoading);
+    await state._pickAndUploadFiles(context, shopId, shopName, customerName, setLoading);
   }
 
   @override
@@ -158,7 +180,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     });
   }
 
-  Future<void> _pickAndUploadFiles(BuildContext context, String shopId, String customerName, Function(bool) setLoading) async {
+  Future<void> _pickAndUploadFiles(BuildContext context, String shopId, String shopName, String customerName, Function(bool) setLoading) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
@@ -201,11 +223,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
           await Supabase.instance.client.from('print_requests').insert({
             'shop_id': shopId,
+            'shop_name': shopName, // Saving shop name for history grouping!
             'file_url': fileUrl,
             'file_name': file.name,
             'status': 'pending',
             'customer_id': customerId,
-            'customer_name': customerName, // Storing the name!
+            'customer_name': customerName,
           });
         }
       }

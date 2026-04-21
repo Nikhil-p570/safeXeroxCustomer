@@ -22,10 +22,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
+    _animationController = AnimationController(duration: const Duration(milliseconds: 800), vsync: this);
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(_animationController);
     _animationController.forward();
     _initMyUploadsStream();
@@ -52,39 +49,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         });
   }
 
+  Map<String, List<Map<String, dynamic>>> _getGroupedUploads() {
+    Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (var upload in _myUploads) {
+      String name = upload['shop_name'] ?? 'Unknown Shop';
+      if (!grouped.containsKey(name)) {
+        grouped[name] = [];
+      }
+      grouped[name]!.add(upload);
+    }
+    return grouped;
+  }
+
   Future<void> _deleteUpload(Map<String, dynamic> upload) async {
     try {
-      // Optimistic UI update
-      if (mounted) {
-        setState(() {
-          _myUploads.removeWhere((item) => item['id'] == upload['id']);
-        });
-      }
-
       final fileUrl = upload['file_url'] as String;
-      final uri = Uri.parse(fileUrl);
-      final fileName = uri.pathSegments.last;
-      final shopId = upload['shop_id'];
-      final storagePath = 'uploads/$shopId/$fileName';
-
-      await Supabase.instance.client.storage
-          .from('print-files')
-          .remove([storagePath]);
-
-      await Supabase.instance.client
-          .from('print_requests')
-          .delete()
-          .eq('id', upload['id']);
-
-      // No need to fetch manually, the stream handles it
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('File deleted permanently')),
-        );
-      }
+      final fileName = Uri.parse(fileUrl).pathSegments.last;
+      final storagePath = 'uploads/${upload['shop_id']}/$fileName';
+      await Supabase.instance.client.storage.from('print-files').remove([storagePath]);
+      await Supabase.instance.client.from('print_requests').delete().eq('id', upload['id']);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File deleted permanently')));
     } catch (e) {
-      debugPrint('Error deleting file: $e');
+      debugPrint('Error deleting: $e');
     }
   }
 
@@ -97,6 +83,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    final groupedUploads = _getGroupedUploads();
+    final shopNames = groupedUploads.keys.toList();
+
     return SingleChildScrollView(
       child: SafeArea(
         child: Padding(
@@ -111,35 +100,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Safe Xerox',
-                            style: TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1B5E20),
-                            ),
-                          ),
-                          Text(
-                            'Secure Printing',
-                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                          ),
-                        ],
-                      ),
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('Safe Xerox', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Color(0xFF1B5E20))),
+                        Text('Secure Printing', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                      ]),
                       Container(
                         padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1B5E20).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        decoration: BoxDecoration(color: const Color(0xFF1B5E20).withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
                         child: const Icon(Icons.security, color: Color(0xFF1B5E20), size: 28),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -147,8 +119,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     icon: const Icon(Icons.qr_code_scanner, size: 28),
                     label: const Text('Start Scanning'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1B5E20),
-                      foregroundColor: Colors.white,
+                      backgroundColor: const Color(0xFF1B5E20), foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 20),
                       textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -156,62 +127,59 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                 ),
                 const SizedBox(height: 40),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Your Recent Uploads',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
-                    if (_myUploads.isNotEmpty)
-                      TextButton(onPressed: _initMyUploadsStream, child: const Text('Refresh')),
-                  ],
-                ),
+                const Text('Your Recent History', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
                 if (_isLoading)
                   const Center(child: CircularProgressIndicator())
                 else if (_myUploads.isEmpty)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Center(
-                      child: Text('No files uploaded yet.', style: TextStyle(color: Colors.grey[600])),
-                    ),
-                  )
+                  Center(child: Text('No history yet.', style: TextStyle(color: Colors.grey[600])))
                 else
                   ListView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _myUploads.length,
+                    itemCount: shopNames.length,
                     itemBuilder: (context, index) {
-                      final upload = _myUploads[index];
-                      final time = DateTime.parse(upload['created_at']);
-                      final formattedTime = DateFormat('MMM dd, hh:mm a').format(time.toLocal());
-                      
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: Colors.grey[200]!),
+                      final shopName = shopNames[index];
+                      final files = groupedUploads[shopName]!;
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 24),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.grey[200]!),
                         ),
-                        child: ListTile(
-                          leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
-                          title: Text(upload['file_name'] ?? 'File', style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text('Sent at $formattedTime'),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red),
-                            onPressed: () => _deleteUpload(upload),
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(children: [
+                                const Icon(Icons.storefront, color: Color(0xFF1B5E20), size: 20),
+                                const SizedBox(width: 8),
+                                Text(shopName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF1B5E20))),
+                              ]),
+                            ),
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: files.length,
+                              itemBuilder: (context, fIndex) {
+                                final file = files[fIndex];
+                                final time = DateTime.parse(file['created_at']);
+                                return ListTile(
+                                  leading: const Icon(Icons.insert_drive_file_outlined),
+                                  title: Text(file['file_name'] ?? 'File'),
+                                  subtitle: Text(DateFormat('hh:mm a').format(time.toLocal())),
+                                  trailing: IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _deleteUpload(file)),
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                          ],
                         ),
                       );
                     },
                   ),
-                const SizedBox(height: 20),
               ],
             ),
           ),
