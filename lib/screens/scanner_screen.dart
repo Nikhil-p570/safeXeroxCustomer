@@ -11,127 +11,11 @@ class ScannerScreen extends StatefulWidget {
   final VoidCallback onClose;
   const ScannerScreen({Key? key, required this.onClose}) : super(key: key);
 
-  @override
-  State<ScannerScreen> createState() => _ScannerScreenState();
-}
-
-class _ScannerScreenState extends State<ScannerScreen> {
-  bool _isScanning = true;
-
-  void _handleShopQr(BuildContext context, String code) {
-    if (!_isScanning) return;
-    
-    setState(() {
-      _isScanning = false;
-    });
-
-    try {
-      final uri = Uri.parse(code);
-      final shopId = uri.queryParameters['id'];
-      final shopName = uri.queryParameters['name'] ?? 'Unknown Shop';
-
-      if (shopId != null) {
-        _showShopFoundDialog(context, shopId, shopName);
-      }
-    } catch (e) {
-      debugPrint('Error parsing QR code: $e');
-    }
-  }
-
-  Future<void> _pickAndUploadFiles(BuildContext context, String shopId) async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
-        type: FileType.custom,
-        allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'png'],
-      );
-
-      if (result == null) return;
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Uploading files...')),
-        );
-      }
-
-      for (final file in result.files) {
-        final fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.name}';
-        final path = 'uploads/$shopId/$fileName';
-
-        bool uploadSuccess = false;
-
-        // 1. Upload to Storage
-        try {
-          if (kIsWeb) {
-            if (file.bytes != null) {
-              await Supabase.instance.client.storage
-                  .from('print-files')
-                  .uploadBinary(path, file.bytes!);
-              uploadSuccess = true;
-            }
-          } else {
-            if (file.path != null) {
-              await Supabase.instance.client.storage
-                  .from('print-files')
-                  .upload(path, File(file.path!));
-              uploadSuccess = true;
-            }
-          }
-        } catch (storageError) {
-          debugPrint('Storage upload error: $storageError');
-        }
-
-        if (uploadSuccess) {
-          final fileUrl = Supabase.instance.client.storage
-              .from('print-files')
-              .getPublicUrl(path);
-
-          final prefs = await SharedPreferences.getInstance();
-          final customerId = prefs.getString('customer_id');
-
-          // 2. Create Request in Database ONLY if upload succeeded
-          await Supabase.instance.client.from('print_requests').insert({
-            'shop_id': shopId,
-            'file_url': fileUrl,
-            'file_name': file.name,
-            'status': 'pending',
-            'customer_id': customerId,
-          });
-        } else {
-          throw Exception('Failed to upload ${file.name}');
-        }
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Files sent successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context); // Close bottom sheet
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  void _showShopFoundDialog(BuildContext context, String shopId, String shopName) {
+  static Widget buildShopFoundDialog(BuildContext context, String shopId, String shopName) {
     bool isUploading = false;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
+    
+    return StatefulBuilder(
+      builder: (context, setModalState) => Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -182,8 +66,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
                         onPressed: () async {
                           setModalState(() => isUploading = true);
                           try {
-                            await _pickAndUploadFiles(context, shopId);
-                            // Navigator.pop(context) is called inside _pickAndUploadFiles on success
+                            final scannerState = context.findAncestorStateOfType<_ScannerScreenState>();
+                            if (scannerState != null) {
+                              await scannerState._pickAndUploadFiles(context, shopId);
+                            } else {
+                              await _staticPickAndUploadFiles(context, shopId);
+                            }
                           } catch (e) {
                             setModalState(() => isUploading = false);
                           }
@@ -208,7 +96,59 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ],
           ),
         ),
+    );
+  }
+
+  static Future<void> _staticPickAndUploadFiles(BuildContext context, String shopId) async {
+    final state = _ScannerScreenState();
+    await state._pickAndUploadFiles(context, shopId);
+  }
+
+  @override
+  State<ScannerScreen> createState() => _ScannerScreenState();
+}
+
+class _ScannerScreenState extends State<ScannerScreen> {
+  bool _isScanning = true;
+
+  void _handleShopQr(BuildContext context, String code) {
+    if (!_isScanning) return;
+    
+    setState(() {
+      _isScanning = false;
+    });
+
+    try {
+      final uri = Uri.parse(code);
+      String? shopId;
+      String? shopName;
+
+      if (code.contains('safe-xerox-customer.vercel.app')) {
+        shopId = uri.queryParameters['id'];
+        shopName = uri.queryParameters['name'] ?? 'Unknown Shop';
+      } else {
+        shopId = uri.queryParameters['id'];
+        shopName = uri.queryParameters['name'] ?? 'Unknown Shop';
+      }
+
+      if (shopId != null) {
+        _showShopFoundDialog(context, shopId, shopName);
+      }
+    } catch (e) {
+      debugPrint('Error parsing QR code: $e');
+      setState(() => _isScanning = true);
+    }
+  }
+
+  void _showShopFoundDialog(BuildContext context, String shopId, String shopName) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName),
     ).whenComplete(() {
       if (mounted) {
         setState(() {
@@ -216,6 +156,83 @@ class _ScannerScreenState extends State<ScannerScreen> {
         });
       }
     });
+  }
+
+  Future<void> _pickAndUploadFiles(BuildContext context, String shopId) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'png'],
+      );
+
+      if (result == null) return;
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Uploading files...')),
+        );
+      }
+
+      for (final file in result.files) {
+        final fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+        final path = 'uploads/$shopId/$fileName';
+        bool uploadSuccess = false;
+
+        try {
+          if (kIsWeb) {
+            if (file.bytes != null) {
+              await Supabase.instance.client.storage
+                  .from('print-files')
+                  .uploadBinary(path, file.bytes!);
+              uploadSuccess = true;
+            }
+          } else {
+            if (file.path != null) {
+              await Supabase.instance.client.storage
+                  .from('print-files')
+                  .upload(path, File(file.path!));
+              uploadSuccess = true;
+            }
+          }
+        } catch (storageError) {
+          debugPrint('Storage upload error: $storageError');
+        }
+
+        if (uploadSuccess) {
+          final fileUrl = Supabase.instance.client.storage
+              .from('print-files')
+              .getPublicUrl(path);
+
+          final prefs = await SharedPreferences.getInstance();
+          final customerId = prefs.getString('customer_id');
+
+          await Supabase.instance.client.from('print_requests').insert({
+            'shop_id': shopId,
+            'file_url': fileUrl,
+            'file_name': file.name,
+            'status': 'pending',
+            'customer_id': customerId,
+          });
+        }
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Files sent successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   @override
@@ -229,7 +246,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
               if (!_isScanning) return;
               for (final barcode in capture.barcodes) {
                 final String? code = barcode.rawValue;
-                if (code != null && code.startsWith('safexerox://shop')) {
+                if (code != null && (code.startsWith('safexerox://shop') || code.contains('safe-xerox-customer.vercel.app'))) {
                   _handleShopQr(context, code);
                   break;
                 }

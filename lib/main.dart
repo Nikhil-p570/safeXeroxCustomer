@@ -59,6 +59,26 @@ class _SafeXeroxHomeState extends State<SafeXeroxHome> {
   void initState() {
     super.initState();
     _pageController = PageController();
+    
+    // Handle web deep links (e.g. from Google Lens)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final uri = Uri.base;
+      if (uri.queryParameters.containsKey('id')) {
+        final shopId = uri.queryParameters['id']!;
+        final shopName = uri.queryParameters['name'] ?? 'Safe Xerox Shop';
+        
+        // Show the connection dialog automatically
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.white,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName),
+        );
+      }
+    });
   }
 
   @override
