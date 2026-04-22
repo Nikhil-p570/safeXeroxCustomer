@@ -53,11 +53,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Map<String, List<Map<String, dynamic>>> _getGroupedUploads() {
     Map<String, List<Map<String, dynamic>>> grouped = {};
     for (var upload in _myUploads) {
-      String name = upload['shop_name'] ?? 'Unknown Shop';
-      if (!grouped.containsKey(name)) {
-        grouped[name] = [];
+      // Use shop_id for unique grouping
+      String id = upload['shop_id'] ?? 'unknown_shop';
+      if (!grouped.containsKey(id)) {
+        grouped[id] = [];
       }
-      grouped[name]!.add(upload);
+      grouped[id]!.add(upload);
     }
     return grouped;
   }
@@ -76,13 +77,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _reuploadToShop(String shopId, String shopName) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => ScannerScreen.buildShopFoundDialog(context, shopId, shopName, startImmediately: true),
-    );
+    ScannerScreen.showDirectUpload(context, shopId, shopName);
   }
 
   @override
@@ -150,9 +145,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: shopNames.length,
                     itemBuilder: (context, index) {
-                      final shopName = shopNames[index];
-                      final files = groupedUploads[shopName]!;
-                      final shopId = files.first['shop_id'];
+                      final shopId = shopNames[index];
+                      final files = groupedUploads[shopId]!;
+                      final shopName = files.first['shop_name'] ?? 'Unknown Shop';
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 24),
